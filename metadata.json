@@ -1,0 +1,6 @@
+{
+  "name": "Solo Leveling RPG",
+  "description": "A premium-quality Android-first gamified self-improvement app inspired by Solo Leveling. Turn your real-life habits into RPG character stats, level up, defeat bosses, and track your progress with animations, streaks, sound effects, and analytics.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

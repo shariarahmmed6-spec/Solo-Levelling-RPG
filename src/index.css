@@ -1,0 +1,88 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=IBM+Plex+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400;500;600;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+
+  --color-primary-bg: #090D18;
+  --color-secondary-bg: #101726;
+  --color-card-bg: #111B2D;
+  --color-cyber-cyan: #00F2FE;
+  --color-electric-blue: #3B82F6;
+  
+  --color-cyan-500: #00f2fe;
+}
+
+/* Custom Tactical System HUD styling */
+body {
+  background-color: #090D18;
+  color: #d1d5db;
+  font-family: var(--font-sans);
+}
+
+/* Scrollbars - Compact & Sci-Fi minimal */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: #090D18;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(0, 242, 254, 0.15);
+  border-radius: 99px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 242, 254, 0.4);
+}
+
+/* Scanline Effect */
+.tactical-scanline {
+  background: linear-gradient(
+    rgba(18, 16, 16, 0) 50%, 
+    rgba(0, 0, 0, 0.25) 50%
+  );
+  background-size: 100% 4px;
+}
+
+/* Technical Labels style */
+.tech-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+/* Tactical Glow and Panel edges */
+.tactical-glow {
+  box-shadow: 0 0 15px rgba(0, 242, 254, 0.03);
+}
+
+.glow-cyan {
+  text-shadow: 0 0 8px rgba(0, 242, 254, 0.5);
+}
+
+/* Custom range input styling */
+input[type="range"] {
+  -webkit-appearance: none;
+  background: #101726;
+  height: 6px;
+  border-radius: 3px;
+  border: 1px solid rgba(0, 242, 254, 0.1);
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  background: #00F2FE;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  cursor: pointer;
+  box-shadow: 0 0 8px rgba(0, 242, 254, 0.6);
+}
+
