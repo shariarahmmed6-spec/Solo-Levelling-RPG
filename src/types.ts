@@ -4,9 +4,59 @@ export interface StatProgress {
   xpNeeded: number;
 }
 
+export interface UserGoal {
+  id: string;
+  text: string;
+  category: 'Education' | 'Fitness' | 'Faith' | 'Finance' | 'Career' | 'Business' | 'Skills' | 'Health' | 'Personal Growth';
+  priority: number;
+  missionName: string;
+}
+
+export type ThemeMode =
+  | 'dark-cyber'
+  | 'neon-blue'
+  | 'monarch-purple'
+  | 'emerald-matrix'
+  | 'crimson-protocol'
+  | 'gold-commander'
+  | 'arctic-ghost'
+  | 'obsidian-elite'
+  | 'origin-protocol';
+
+export interface ProfileFrame {
+  id: string;
+  name: string;
+  description: string;
+  rarity: 'common' | 'rare' | 'epic' | 'legendary' | 'mythic';
+  unlockType: 'level' | 'coins' | 'crate' | 'streak' | 'fragments' | 'founder' | 'default';
+  unlockRequirement: string;
+  coinCost?: number;
+  requiredLevel?: number;
+  requiredStreak?: number;
+  animated?: boolean;
+  borderStyle: string;
+  glowColor: string;
+}
+
+export interface SystemFragment {
+  id: string; // e.g. 'frag_001'
+  number: number; // 1 to 100
+  name: string;
+  description: string;
+  hint: string;
+  discoveryDate: string | null;
+  rarity: 'Common' | 'Rare' | 'Epic' | 'Legendary' | 'Mythic';
+  category: 'Discipline' | 'Strength' | 'Knowledge' | 'Spirit' | 'Mastery' | 'Legacy';
+  icon: string;
+}
+
 export interface Character {
   name: string;
   avatar: string; // URL or local emoji/svg identifier
+  birthDate?: string; // YYYY-MM-DD
+  age?: number;
+  goals?: UserGoal[];
+  createdAt?: string; // YYYY-MM-DD
   level: number;
   rank: string;
   xp: number;
@@ -18,6 +68,9 @@ export interface Character {
   coins: number;
   activeTitle: string;
   titles: string[];
+  equippedFrame?: string;
+  unlockedFrames?: string[];
+  unlockedThemes?: string[];
   stats: {
     Strength: StatProgress;
     Agility: StatProgress;
@@ -41,7 +94,7 @@ export interface Quest {
   date: string; // YYYY-MM-DD
   xpReward: number;
   coinReward: number;
-  missionId?: 'hsc' | 'creator' | 'faith' | 'fitness';
+  missionId?: 'hsc' | 'creator' | 'faith' | 'fitness' | string;
 }
 
 export interface BossTask {
@@ -79,12 +132,16 @@ export interface Achievement {
   unlocked: boolean;
   unlockedAt?: string;
   rewardCoins: number;
+  rewardCrate?: 'common' | 'rare' | 'epic' | 'legendary';
+  rewardFragmentNumber?: number;
+  rewardFrameId?: string;
+  rewardTitle?: string;
 }
 
 export interface InventoryItem {
   id: string;
   name: string;
-  type: 'potion' | 'energy' | 'chest_rare' | 'chest_epic' | 'chest_legendary' | 'cosmetic' | 'title';
+  type: 'potion' | 'energy' | 'chest_rare' | 'chest_epic' | 'chest_legendary' | 'crate_common' | 'crate_rare' | 'crate_epic' | 'crate_legendary' | 'cosmetic' | 'title';
   description: string;
   quantity: number;
   rarity: 'common' | 'rare' | 'epic' | 'legendary';
@@ -214,7 +271,7 @@ export interface MissionBoss {
 }
 
 export interface Mission {
-  id: 'hsc' | 'creator' | 'faith' | 'fitness';
+  id: 'hsc' | 'creator' | 'faith' | 'fitness' | string;
   name: string;
   icon: string;
   description: string;
@@ -227,6 +284,79 @@ export interface Mission {
   weeklyObjectives: MissionObjective[];
   monthlyObjectives: MissionObjective[];
   bossBattle: MissionBoss;
+  goalCategory?: 'Education' | 'Fitness' | 'Faith' | 'Finance' | 'Career' | 'Business' | 'Skills' | 'Health' | 'Personal Growth' | string;
+  originalGoal?: string;
+  priority?: number;
+}
+
+export type TreeStage =
+  | 'seed'
+  | 'sprout'
+  | 'young_tree'
+  | 'growing_tree'
+  | 'ancient_tree'
+  | 'legendary_tree'
+  | 'eternal_tree';
+
+export type GrowthCategory =
+  | 'education'
+  | 'fitness'
+  | 'faith'
+  | 'career'
+  | 'creativity'
+  | 'health'
+  | 'discipline';
+
+export type SeasonMode = 'auto' | 'spring' | 'summer' | 'autumn' | 'winter';
+
+export interface LegacyMilestone {
+  id: string;
+  category: GrowthCategory;
+  title: string;
+  description: string;
+  requirementDesc: string;
+  branchLevel: number; // 1 to 4
+  unlocked: boolean;
+  unlockedAt: string | null;
+  relicRewardId?: string;
+  reflectionQuote: string;
+}
+
+export interface LegacyRelic {
+  id: string; // 'crystal_fruit' | 'golden_leaf' | 'ancient_rune' | 'eternal_bloom' | 'shadow_seed'
+  name: string;
+  category: GrowthCategory;
+  description: string;
+  lore: string;
+  icon: string;
+  unlocked: boolean;
+  unlockedAt: string | null;
+  color: string;
+  branchTarget: string;
+}
+
+export interface MemoryCapsule {
+  id: string;
+  date: string; // YYYY-MM-DD
+  milestoneTitle: string;
+  branchName: string;
+  category: GrowthCategory;
+  level: number;
+  rank: string;
+  reflection: string;
+  userNote?: string;
+}
+
+export interface LegacyTreeData {
+  stage: TreeStage;
+  totalLeaves: number;
+  seasonMode: SeasonMode;
+  seasonalEnabled: boolean;
+  milestones: LegacyMilestone[];
+  relics: LegacyRelic[];
+  memoryCapsules: MemoryCapsule[];
+  lastDailyMessageDate?: string;
+  isEternalAwakened?: boolean;
 }
 
 export interface AppState {
@@ -246,11 +376,14 @@ export interface AppState {
     soundEnabled: boolean;
     vibrationEnabled: boolean;
     notificationsEnabled: boolean;
-    themeMode: 'dark-cyber' | 'neon-blue' | 'monarch-purple';
+    themeMode: ThemeMode;
   };
+  systemFragments?: SystemFragment[];
+  founderClaimed?: boolean;
   questPlanner?: QuestPlanner;
   missions?: Mission[];
   lifeCalendarSettings?: LifeCalendarSettings;
   lifeReflections?: { [date: string]: string };
   lifeHistoryArchive?: { [date: string]: DailyLifeArchive };
+  legacyTree?: LegacyTreeData;
 }

@@ -13,7 +13,7 @@ function getAudioContext() {
 }
 
 export function playSound(
-  type: 'click' | 'levelUp' | 'reward' | 'achievement' | 'bossDefeated' | 'failure' | 'heal',
+  type: 'click' | 'buttonClick' | 'levelUp' | 'reward' | 'achievement' | 'bossDefeated' | 'failure' | 'heal' | 'systemUnlock',
   soundEnabled: boolean
 ) {
   if (!soundEnabled) return;
@@ -23,6 +23,26 @@ export function playSound(
     const now = ctx.currentTime;
 
     switch (type) {
+      case 'systemUnlock': {
+        // Quiet, gentle tactical activation tone & soft scanner hum
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(280, now);
+        osc.frequency.exponentialRampToValueAtTime(560, now + 0.3);
+        osc.frequency.exponentialRampToValueAtTime(840, now + 0.65);
+
+        gain.gain.setValueAtTime(0.001, now);
+        gain.gain.linearRampToValueAtTime(0.04, now + 0.15);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.75);
+
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(now);
+        osc.stop(now + 0.8);
+        break;
+      }
+      case 'buttonClick':
       case 'click': {
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();

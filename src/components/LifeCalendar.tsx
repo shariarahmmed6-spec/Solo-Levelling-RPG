@@ -36,15 +36,16 @@ export default function LifeCalendar({ state, onUpdateState }: LifeCalendarProps
 
   // Settings
   const settings: LifeCalendarSettings = useMemo(() => {
+    const fallbackBirthDate = state.character?.birthDate || '2007-04-17';
     return state.lifeCalendarSettings || {
       expectedLifespanYears: 60,
-      birthDate: '2007-04-17',
+      birthDate: fallbackBirthDate,
       themeColor: 'cyan',
       showStats: true,
       showMotivations: true,
       customMilestones: []
     };
-  }, [state.lifeCalendarSettings]);
+  }, [state.lifeCalendarSettings, state.character?.birthDate]);
 
   // View settings
   const [zoomLevel, setZoomLevel] = useState<'daily' | 'monthly' | 'yearly' | 'lifetime'>('daily');

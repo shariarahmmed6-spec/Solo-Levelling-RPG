@@ -1,5 +1,6 @@
 import React from 'react';
 import { Character } from '../types';
+import { useTheme } from '../context/ThemeContext';
 import {
   AreaChart,
   Area,
@@ -22,6 +23,8 @@ interface AnalyticsViewProps {
 }
 
 export default function AnalyticsView({ character, xpHistory }: AnalyticsViewProps) {
+  const { tokens } = useTheme();
+
   // 1. Generate 7-day XP data
   const generateSevenDayXpData = () => {
     const data = [];
@@ -106,15 +109,15 @@ export default function AnalyticsView({ character, xpHistory }: AnalyticsViewPro
           <div className="h-80 w-full flex items-center justify-center relative select-none">
             <ResponsiveContainer width="100%" height="100%">
               <RadarChart cx="50%" cy="50%" outerRadius="80%" data={radarData}>
-                <PolarGrid stroke="rgba(0, 242, 254, 0.05)" />
-                <PolarAngleAxis dataKey="subject" tick={{ fill: '#a1a1aa', fontSize: 10, fontFamily: 'monospace' }} />
-                <PolarRadiusAxis angle={30} domain={[0, 'auto']} tick={{ fill: '#52525b', fontSize: 9, fontFamily: 'monospace' }} />
+                <PolarGrid stroke={tokens.charts.grid} />
+                <PolarAngleAxis dataKey="subject" tick={{ fill: tokens.charts.text, fontSize: 10, fontFamily: 'monospace' }} />
+                <PolarRadiusAxis angle={30} domain={[0, 'auto']} tick={{ fill: tokens.text.muted, fontSize: 9, fontFamily: 'monospace' }} />
                 <Radar
                   name={character.name}
                   dataKey="Level"
-                  stroke="#00F2FE"
-                  fill="#00F2FE"
-                  fillOpacity={0.15}
+                  stroke={tokens.charts.primary}
+                  fill={tokens.charts.primary}
+                  fillOpacity={0.18}
                 />
               </RadarChart>
             </ResponsiveContainer>
@@ -136,27 +139,27 @@ export default function AnalyticsView({ character, xpHistory }: AnalyticsViewPro
               <AreaChart data={xpChartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                 <defs>
                   <linearGradient id="colorXp" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#00F2FE" stopOpacity={0.2} />
-                    <stop offset="95%" stopColor="#00F2FE" stopOpacity={0.0} />
+                    <stop offset="5%" stopColor={tokens.charts.primary} stopOpacity={0.25} />
+                    <stop offset="95%" stopColor={tokens.charts.primary} stopOpacity={0.0} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(0, 242, 254, 0.05)" />
-                <XAxis dataKey="label" tick={{ fill: '#71717a', fontSize: 10, fontFamily: 'monospace' }} />
-                <YAxis tick={{ fill: '#71717a', fontSize: 10, fontFamily: 'monospace' }} />
+                <CartesianGrid strokeDasharray="3 3" stroke={tokens.charts.grid} />
+                <XAxis dataKey="label" tick={{ fill: tokens.text.muted, fontSize: 10, fontFamily: 'monospace' }} />
+                <YAxis tick={{ fill: tokens.text.muted, fontSize: 10, fontFamily: 'monospace' }} />
                 <Tooltip
                   contentStyle={{
-                    backgroundColor: '#111B2D',
-                    borderColor: 'rgba(0, 242, 254, 0.15)',
+                    backgroundColor: tokens.charts.tooltipBg,
+                    borderColor: tokens.border.accent,
                     borderRadius: '8px',
                     fontSize: '11px',
                     fontFamily: 'monospace',
-                    color: '#f4f4f5'
+                    color: tokens.text.primary
                   }}
                 />
                   <Area
                     type="monotone"
                     dataKey="XP"
-                    stroke="#00F2FE"
+                    stroke={tokens.charts.primary}
                     strokeWidth={2}
                     fillOpacity={1}
                     fill="url(#colorXp)"

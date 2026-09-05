@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { AppState, Character, LifeCalendarSettings } from '../types';
 import { playSound } from '../utils/sound';
+import { useTheme } from '../context/ThemeContext';
 import {
   Settings,
   Shield,
@@ -15,8 +16,17 @@ import {
   Calendar,
   Palette,
   Eye,
-  BookOpen
+  BookOpen,
+  Camera,
+  Image as ImageIcon,
+  RotateCcw,
+  Trash2,
+  CheckCircle2,
+  Sparkles
 } from 'lucide-react';
+import { PWAInstallButton } from './PWAInstallPrompt';
+import { ProfileAvatar, DEFAULT_ARISE_AVATAR } from './ProfileAvatar';
+import { ImageCropModal } from './identity/ImageCropModal';
 
 interface SettingsViewProps {
   settings: AppState['settings'];
@@ -27,6 +37,7 @@ interface SettingsViewProps {
   fullState: AppState;
   soundEnabled: boolean;
   onUpdateLifeCalendarSettings: (newSettings: Partial<LifeCalendarSettings>) => void;
+  onUpdateAvatar?: (newAvatar: string) => void;
 }
 
 export default function SettingsView({
@@ -37,12 +48,81 @@ export default function SettingsView({
   onImportState,
   fullState,
   soundEnabled,
-  onUpdateLifeCalendarSettings
+  onUpdateLifeCalendarSettings,
+  onUpdateAvatar
 }: SettingsViewProps) {
+  const { theme: activeTheme, setTheme } = useTheme();
   const [pinInput, setPinInput] = useState('');
   const [pinError, setPinError] = useState('');
   const [showPinConfirm, setShowPinConfirm] = useState(false);
   const [resetConfirm, setResetConfirm] = useState(false);
+
+  // System Identity photo management state
+  const [selectedRawImage, setSelectedRawImage] = useState<string | null>(null);
+  const [isCropOpen, setIsCropOpen] = useState(false);
+  const [isAvatarScanning, setIsAvatarScanning] = useState(false);
+  const [showScanConfirmation, setShowScanConfirmation] = useState(false);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+
+  const isCustomAvatar =
+    character?.avatar &&
+    character.avatar !== DEFAULT_ARISE_AVATAR &&
+    !['creator', 'sentry', 'mage', 'paladin', 'assassin', 'merchant'].includes(character.avatar);
+
+  const handlePhotoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.match(/^image\/(jpeg|jpg|png|webp)$/i)) {
+      alert('Please select a valid image file (JPG, PNG, or WebP).');
+      playSound('failure', soundEnabled);
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const result = event.target?.result as string;
+      if (result) {
+        setSelectedRawImage(result);
+        setIsCropOpen(true);
+      }
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
+  const handleCropComplete = (croppedDataUrl: string) => {
+    setIsCropOpen(false);
+    setSelectedRawImage(null);
+    if (onUpdateAvatar) {
+      onUpdateAvatar(croppedDataUrl);
+    }
+    setIsAvatarScanning(true);
+    setShowScanConfirmation(true);
+    playSound('achievement', soundEnabled);
+
+    setTimeout(() => {
+      setIsAvatarScanning(false);
+    }, 900);
+
+    setTimeout(() => {
+      setShowScanConfirmation(false);
+    }, 2400);
+  };
+
+  const handleRemoveAvatar = () => {
+    playSound('click', soundEnabled);
+    if (onUpdateAvatar) {
+      onUpdateAvatar(DEFAULT_ARISE_AVATAR);
+    }
+  };
+
+  const handleRestoreDefaultAvatar = () => {
+    playSound('click', soundEnabled);
+    if (onUpdateAvatar) {
+      onUpdateAvatar(DEFAULT_ARISE_AVATAR);
+    }
+  };
 
   // Sound toggle
   const handleSoundToggle = () => {
@@ -208,6 +288,99 @@ export default function SettingsView({
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* ========================================================================= */}
+        {/* EDIT SYSTEM IDENTITY CARD */}
+        {/* ========================================================================= */}
+        <div className="md:col-span-2 bg-[#111B2D] border border-cyan-500/15 rounded-[14px] p-6 space-y-5 shadow-sm">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-cyan-500/10 pb-4">
+            <div>
+              <h3 className="text-xs font-mono font-bold text-zinc-100 uppercase tracking-widest flex items-center gap-2">
+                <Camera className="w-4 h-4 text-cyan-400" />
+                Edit System Identity
+              </h3>
+              <p className="text-xs text-zinc-400 font-sans mt-0.5">
+                Manage your biometric profile portrait and tactical System Identity. Updates across all views.
+              </p>
+            </div>
+            {isCustomAvatar ? (
+              <span className="text-[10px] font-mono text-cyan-400 bg-cyan-950/60 border border-cyan-500/30 px-2.5 py-1 rounded-full flex items-center gap-1.5 self-start sm:self-auto">
+                <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+                CUSTOM BIOMETRIC REGISTERED
+              </span>
+            ) : (
+              <span className="text-[10px] font-mono text-zinc-400 bg-[#101726] border border-cyan-500/10 px-2.5 py-1 rounded-full self-start sm:self-auto">
+                DEFAULT ARISE IDENTITY
+              </span>
+            )}
+          </div>
+
+          <div className="flex flex-col sm:flex-row items-center gap-6 p-4 rounded-xl bg-[#101726]/70 border border-cyan-500/10">
+            {/* Live Profile Avatar with Scan & Glow */}
+            <div className="relative shrink-0">
+              <ProfileAvatar
+                character={character}
+                size="lg"
+                showLevelBadge={true}
+                isScanning={isAvatarScanning}
+                isClickable={true}
+                onClick={() => fileInputRef.current?.click()}
+              />
+            </div>
+
+            {/* Operator Info & HUD Scan Toast */}
+            <div className="flex-1 text-center sm:text-left space-y-2">
+              <div>
+                <h4 className="text-sm font-bold text-white tracking-tight">{character?.name || 'Operator'}</h4>
+                <p className="text-xs font-mono text-cyan-400/80">
+                  {character?.rank || 'Rank E'} • Level {character?.level || 1}
+                </p>
+              </div>
+
+              {showScanConfirmation && (
+                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-cyan-950/90 border border-cyan-400 text-cyan-300 font-mono text-[10px] font-bold tracking-widest uppercase shadow-[0_0_20px_rgba(0,229,255,0.4)] animate-in fade-in duration-200">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-cyan-400" />
+                  <span>SYSTEM IDENTITY REGISTERED</span>
+                </div>
+              )}
+
+              {/* Action Buttons: Change Photo, Remove Photo, Restore Default Avatar */}
+              <div className="flex flex-wrap items-center gap-2.5 pt-1 justify-center sm:justify-start">
+                <button
+                  type="button"
+                  onClick={() => {
+                    playSound('click', soundEnabled);
+                    fileInputRef.current?.click();
+                  }}
+                  className="px-4 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-black font-mono text-xs font-bold uppercase tracking-wider shadow-[0_0_20px_rgba(0,229,255,0.25)] flex items-center gap-2 transition-all cursor-pointer active:scale-95"
+                >
+                  <ImageIcon className="w-4 h-4 text-black" />
+                  <span>Change Photo</span>
+                </button>
+
+                {isCustomAvatar ? (
+                  <button
+                    type="button"
+                    onClick={handleRemoveAvatar}
+                    className="px-3.5 py-2 rounded-xl bg-[#090e1a] hover:bg-[#0f172a] border border-cyan-500/20 text-zinc-300 hover:text-rose-300 font-mono text-xs tracking-wider flex items-center gap-1.5 transition-all cursor-pointer"
+                  >
+                    <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                    <span>Remove Photo</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleRestoreDefaultAvatar}
+                    className="px-3.5 py-2 rounded-xl bg-[#090e1a] hover:bg-[#0f172a] border border-cyan-500/20 text-zinc-400 hover:text-zinc-200 font-mono text-xs tracking-wider flex items-center gap-1.5 transition-all cursor-pointer"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5 text-cyan-400" />
+                    <span>Restore Default Avatar</span>
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
         {/* Core settings form */}
         <div className="bg-[#111B2D] border border-cyan-500/10 rounded-[14px] p-6 space-y-6 shadow-sm">
           <h3 className="text-xs font-mono font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2">
@@ -234,24 +407,37 @@ export default function SettingsView({
 
           {/* Theme Preset Selector */}
           <div className="space-y-2">
-            <label className="block text-[9px] font-mono font-bold text-zinc-500 uppercase tracking-widest">VISUAL LAYOUT PRESET</label>
+            <div className="flex justify-between items-center">
+              <label className="block text-[9px] font-mono font-bold text-zinc-500 uppercase tracking-widest">VISUAL LAYOUT PRESET</label>
+              <span className="text-[9px] font-mono text-cyan-400 uppercase font-semibold">Active: {activeTheme.replace('-', ' ')}</span>
+            </div>
             <div className="grid grid-cols-3 gap-2 text-xs font-mono">
-              {(['dark-cyber', 'neon-blue', 'monarch-purple'] as const).map((theme) => {
-                const isActive = settings.themeMode === theme;
+              {([
+                { id: 'dark-cyber', label: 'Dark Cyber', desc: 'Deep Navy & Cyan' },
+                { id: 'neon-blue', label: 'Neon Blue', desc: 'Obsidian & Blue' },
+                { id: 'monarch-purple', label: 'Monarch Purple', desc: 'Void & Purple' }
+              ] as const).map((preset) => {
+                const isActive = activeTheme === preset.id;
                 return (
                   <button
-                    key={theme}
+                    key={preset.id}
                     onClick={() => {
-                      onUpdateSettings({ themeMode: theme });
+                      setTheme(preset.id);
+                      onUpdateSettings({ themeMode: preset.id });
                       playSound('click', soundEnabled);
                     }}
                     className={`py-3 px-2 border rounded-xl font-bold uppercase tracking-wider cursor-pointer transition-all ${
                       isActive
-                        ? 'bg-cyan-500 border-cyan-400 text-zinc-950 shadow-[0_0_10px_rgba(0,242,254,0.1)]'
-                        : 'bg-[#101726] border-cyan-500/10 text-zinc-500 hover:text-zinc-300'
+                        ? 'bg-cyan-500 border-cyan-400 text-zinc-950 shadow-[0_0_12px_rgba(0,242,254,0.25)] scale-[1.02]'
+                        : 'bg-[#101726] border-cyan-500/10 text-zinc-400 hover:text-zinc-200 hover:border-cyan-500/25'
                     }`}
                   >
-                    {theme.replace('-', ' ')}
+                    <div className="flex flex-col items-center gap-1">
+                      <span className="text-[10px] font-mono font-bold tracking-wider leading-tight">{preset.label}</span>
+                      <span className={`text-[8px] font-mono tracking-tight lowercase ${isActive ? 'text-zinc-900 font-semibold' : 'text-zinc-500'}`}>
+                        {preset.desc}
+                      </span>
+                    </div>
                   </button>
                 );
               })}
@@ -468,6 +654,9 @@ export default function SettingsView({
           </div>
         </div>
 
+        {/* Android PWA Installation */}
+        <PWAInstallButton variant="settings" soundEnabled={soundEnabled} />
+
         {/* Hard Reset System Progress */}
         <div className="bg-[#111B2D] border border-cyan-500/10 rounded-[14px] p-6 space-y-4 shadow-sm">
           <h3 className="text-xs font-mono font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2">
@@ -515,6 +704,29 @@ export default function SettingsView({
           )}
         </div>
       </div>
+
+      {/* Hidden Native File Input for Gallery Photo Selection */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/jpeg,image/png,image/webp,image/jpg"
+        onChange={handlePhotoSelect}
+        className="hidden"
+      />
+
+      {/* Circular Image Crop Modal */}
+      {selectedRawImage && (
+        <ImageCropModal
+          imageSrc={selectedRawImage}
+          isOpen={isCropOpen}
+          onClose={() => {
+            setIsCropOpen(false);
+            setSelectedRawImage(null);
+          }}
+          onCropComplete={handleCropComplete}
+          soundEnabled={soundEnabled}
+        />
+      )}
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { AppState, Character, LifeCalendarSettings } from './types';
+import { AppState, Character, LifeCalendarSettings, UserGoal, Mission, ThemeMode, SystemFragment } from './types';
 import {
   getInitialState,
   checkInDaily,
@@ -15,6 +15,9 @@ import {
   defaultMissions
 } from './utils/state';
 import { playSound } from './utils/sound';
+import { INITIAL_SYSTEM_FRAGMENTS, evaluateSystemFragments } from './data/systemFragmentsData';
+import { ProfileAvatar, DEFAULT_ARISE_AVATAR } from './components/ProfileAvatar';
+import { EditSystemIdentityModal } from './components/identity/EditSystemIdentityModal';
 
 // View Imports
 import Dashboard from './components/Dashboard';
@@ -27,8 +30,16 @@ import AchievementsView from './components/AchievementsView';
 import CalendarHeatmap from './components/CalendarHeatmap';
 import AnalyticsView from './components/AnalyticsView';
 import SettingsView from './components/SettingsView';
-import CharacterCreator from './components/CharacterCreator';
+import SystemInitialization from './components/SystemInitialization';
 import LifeCalendar from './components/LifeCalendar';
+import { LegacyTreeView } from './components/legacy/LegacyTreeView';
+import { INITIAL_LEGACY_TREE, evaluateLegacyTree } from './data/legacyTreeData';
+import { SystemUnlockTransition } from './components/SystemUnlockTransition';
+import { WelcomeOverlay } from './components/WelcomeOverlay';
+import { calculateMissionDay } from './utils/missionDay';
+import { PWAInstallButton, PWAInstallBanner } from './components/PWAInstallPrompt';
+import { OfflineIndicator } from './components/OfflineIndicator';
+import { ThemeProvider } from './context/ThemeContext';
 
 // Icons for navigation
 import {
@@ -47,7 +58,8 @@ import {
   Zap,
   ChevronRight,
   Sparkles,
-  Clock
+  Clock,
+  TreePine
 } from 'lucide-react';
 
 export default function App() {
@@ -139,6 +151,45 @@ export default function App() {
           if (!parsed.lifeHistoryArchive) {
             parsed.lifeHistoryArchive = {};
           }
+          if (!parsed.systemFragments || parsed.systemFragments.length === 0) {
+            parsed.systemFragments = INITIAL_SYSTEM_FRAGMENTS;
+          }
+          if (parsed.founderClaimed === undefined) {
+            parsed.founderClaimed = false;
+          }
+          if (parsed.character) {
+            if (!parsed.character.equippedFrame) {
+              parsed.character.equippedFrame = 'frame_default';
+            }
+            if (!parsed.character.unlockedFrames || parsed.character.unlockedFrames.length === 0) {
+              parsed.character.unlockedFrames = ['frame_default'];
+            }
+            if (!parsed.character.unlockedThemes || parsed.character.unlockedThemes.length === 0) {
+              parsed.character.unlockedThemes = ['dark-cyber', 'neon-blue', 'monarch-purple'];
+            }
+          }
+          if (parsed.inventory && !parsed.inventory.some((i: any) => i.id === 'crate_common')) {
+            parsed.inventory.push({
+              id: 'crate_common',
+              name: 'Operative Supply Crate',
+              type: 'crate_common',
+              description: 'Standard tactical drop containing essential coins, recovery supplies, and operative gear.',
+              quantity: 1,
+              rarity: 'common',
+              icon: 'Box'
+            });
+          }
+          // Retroactively evaluate any system fragments unlocked by existing progress
+          const { updatedFragments } = evaluateSystemFragments(parsed);
+          parsed.systemFragments = updatedFragments;
+
+          // Initialize and evaluate Legacy Tree progress
+          if (!parsed.legacyTree) {
+            parsed.legacyTree = INITIAL_LEGACY_TREE;
+          }
+          const { updatedTree: evaluatedTree } = evaluateLegacyTree(parsed);
+          parsed.legacyTree = evaluatedTree;
+
           return parsed;
         }
       } catch (err) {
@@ -157,6 +208,24 @@ export default function App() {
   // Custom HUD Overlays
   const [levelUpAlert, setLevelUpAlert] = useState<{ active: boolean; oldLevel: number; newLevel: number } | null>(null);
   const [streakBrokenAlert, setStreakBrokenAlert] = useState<boolean>(false);
+
+  // System Unlock Transition & Welcome Overlay States
+  const [isUnlocking, setIsUnlocking] = useState<boolean>(false);
+  const [showWelcome, setShowWelcome] = useState<boolean>(false);
+  const [isFirstDayOrUnlock, setIsFirstDayOrUnlock] = useState<boolean>(false);
+  const [isEditIdentityOpen, setIsEditIdentityOpen] = useState<boolean>(false);
+
+  // Check if returning user should see brief session greeting (does not replay animation)
+  useEffect(() => {
+    if (state.character && !isUnlocking) {
+      const hasGreetedSession = sessionStorage.getItem('arise_session_greeted');
+      if (!hasGreetedSession) {
+        sessionStorage.setItem('arise_session_greeted', 'true');
+        setIsFirstDayOrUnlock(false);
+        setShowWelcome(true);
+      }
+    }
+  }, [state.character, isUnlocking]);
 
   // Sync state changes to local storage
   useEffect(() => {
@@ -182,6 +251,32 @@ export default function App() {
       setState(res.newState);
     }
   }, [isAuthenticated, state.character]);
+
+  // Synchronize and evaluate Legacy Tree growth whenever relevant progress updates
+  useEffect(() => {
+    if (!state.character) return;
+    const { updatedTree } = evaluateLegacyTree(state);
+    if (
+      !state.legacyTree ||
+      state.legacyTree.stage !== updatedTree.stage ||
+      state.legacyTree.totalLeaves !== updatedTree.totalLeaves ||
+      state.legacyTree.milestones.filter(m => m.unlocked).length !== updatedTree.milestones.filter(m => m.unlocked).length ||
+      state.legacyTree.relics.filter(r => r.unlocked).length !== updatedTree.relics.filter(r => r.unlocked).length
+    ) {
+      setState(prev => ({
+        ...prev,
+        legacyTree: updatedTree
+      }));
+    }
+  }, [
+    state.fitnessLogs?.length,
+    state.faithLogs?.length,
+    state.learningLogs?.length,
+    state.businessLogs?.length,
+    state.character?.level,
+    state.streak?.currentStreak,
+    state.quests
+  ]);
 
   // Automatic progress: Check every 30 seconds for date roll (midnight transition)
   useEffect(() => {
@@ -231,22 +326,120 @@ export default function App() {
     playSound('click', state.settings.soundEnabled);
   };
 
-  // State Updates Wrapper
-  const handleAwaken = (char: Character) => {
+  // Update System Identity avatar (custom photo or default)
+  const handleUpdateAvatar = (newAvatar: string) => {
     setState(prev => {
-      const today = getTodayDateString();
+      if (!prev.character) return prev;
       return {
         ...prev,
-        character: char,
-        quests: generateDailyQuests(today),
+        character: {
+          ...prev.character,
+          avatar: newAvatar
+        }
+      };
+    });
+  };
+
+  // State Updates Wrapper
+  const handleSystemInitialize = (
+    {
+      name,
+      birthDate,
+      age,
+      avatar,
+      goals,
+      missions
+    }: {
+      name: string;
+      birthDate: string;
+      age: number;
+      avatar?: string;
+      goals?: UserGoal[];
+      missions?: Mission[];
+    },
+    isNewUnlock: boolean = true
+  ) => {
+    const today = getTodayDateString();
+    
+    // Create initial character with the user's verified identity, avatar, and goals
+    const initialCharacter: Character = {
+      name,
+      avatar: avatar || DEFAULT_ARISE_AVATAR,
+      birthDate,
+      age,
+      goals,
+      createdAt: today,
+      level: 1,
+      rank: 'Rank E',
+      xp: 0,
+      xpNeeded: 100,
+      hp: 100,
+      maxHp: 100,
+      energy: 50,
+      maxEnergy: 50,
+      coins: 200,
+      activeTitle: 'The Practitioner',
+      titles: ['The Practitioner', 'Novice Builder'],
+      equippedFrame: 'frame_default',
+      unlockedFrames: ['frame_default'],
+      unlockedThemes: ['dark-cyber', 'neon-blue', 'monarch-purple'],
+      stats: {
+        Strength: { level: 1, xp: 0, xpNeeded: 50 },
+        Agility: { level: 1, xp: 0, xpNeeded: 50 },
+        Endurance: { level: 1, xp: 0, xpNeeded: 50 },
+        Intelligence: { level: 1, xp: 0, xpNeeded: 50 },
+        Discipline: { level: 1, xp: 0, xpNeeded: 50 },
+        Charisma: { level: 1, xp: 0, xpNeeded: 50 },
+        Knowledge: { level: 1, xp: 0, xpNeeded: 50 },
+        Faith: { level: 1, xp: 0, xpNeeded: 50 },
+        Vitality: { level: 1, xp: 0, xpNeeded: 50 },
+        Business: { level: 1, xp: 0, xpNeeded: 50 }
+      }
+    };
+
+    if (isNewUnlock) {
+      setIsUnlocking(true);
+      setIsFirstDayOrUnlock(true);
+      sessionStorage.setItem('arise_session_greeted', 'true');
+    }
+
+    setState(prev => {
+      const lifeCal = prev.lifeCalendarSettings || {
+        expectedLifespanYears: 60,
+        birthDate,
+        themeColor: 'cyan',
+        showStats: true,
+        showMotivations: true,
+        customMilestones: []
+      };
+
+      const resolvedMissions = (missions && missions.length > 0)
+        ? missions
+        : (prev.missions || defaultMissions);
+
+      const nextState: AppState = {
+        ...prev,
+        character: initialCharacter,
+        missions: resolvedMissions,
+        lifeCalendarSettings: {
+          ...lifeCal,
+          birthDate
+        },
         streak: {
           currentStreak: 1,
           longestStreak: 1,
           lastActiveDate: today,
           weeklyStreak: 1,
           monthlyStreak: 1
-        }
+        },
+        systemFragments: prev.systemFragments || INITIAL_SYSTEM_FRAGMENTS,
+        founderClaimed: prev.founderClaimed || false
       };
+
+      // Generate daily quests passing nextState so goal quests are included & prioritized!
+      nextState.quests = generateDailyQuests(nextState, today);
+
+      return nextState;
     });
   };
 
@@ -350,6 +543,159 @@ export default function App() {
     });
   };
 
+  const handleUnlockTheme = (theme: ThemeMode, cost: number) => {
+    setState(prev => {
+      if (!prev.character) return prev;
+      if (prev.character.coins < cost) return prev;
+
+      const currentThemes = prev.character.unlockedThemes || ['dark-cyber', 'neon-blue', 'monarch-purple'];
+      if (currentThemes.includes(theme)) return prev;
+
+      const updatedThemes = [...currentThemes, theme];
+      const nextChar = {
+        ...prev.character,
+        coins: prev.character.coins - cost,
+        unlockedThemes: updatedThemes
+      };
+
+      playSound('levelUp', prev.settings.soundEnabled);
+
+      return {
+        ...prev,
+        character: nextChar,
+        settings: {
+          ...prev.settings,
+          themeMode: theme
+        }
+      };
+    });
+  };
+
+  const handleEquipFrame = (frameId: string) => {
+    setState(prev => {
+      if (!prev.character) return prev;
+      playSound('buttonClick', prev.settings.soundEnabled);
+      return {
+        ...prev,
+        character: {
+          ...prev.character,
+          equippedFrame: frameId
+        }
+      };
+    });
+  };
+
+  const handleUnlockFrameWithCoins = (frameId: string, cost: number) => {
+    setState(prev => {
+      if (!prev.character) return prev;
+      if (prev.character.coins < cost) return prev;
+
+      const currentFrames = prev.character.unlockedFrames || ['frame_default'];
+      if (currentFrames.includes(frameId)) return prev;
+
+      const updatedFrames = [...currentFrames, frameId];
+      const nextChar = {
+        ...prev.character,
+        coins: prev.character.coins - cost,
+        unlockedFrames: updatedFrames,
+        equippedFrame: frameId
+      };
+
+      playSound('reward', prev.settings.soundEnabled);
+
+      return {
+        ...prev,
+        character: nextChar
+      };
+    });
+  };
+
+  const handleClaimFounder = () => {
+    setState(prev => {
+      if (!prev.character || prev.founderClaimed) return prev;
+
+      const today = getTodayDateString();
+      const currentFrames = prev.character.unlockedFrames || ['frame_default'];
+      const updatedFrames = currentFrames.includes('frame_founder')
+        ? currentFrames
+        : [...currentFrames, 'frame_founder'];
+
+      const currentTitles = [...prev.character.titles];
+      if (!currentTitles.includes('System Founder')) {
+        currentTitles.push('System Founder');
+      }
+
+      // Unlock Fragment #001 Genesis Seed
+      const fragments = prev.systemFragments ? [...prev.systemFragments] : [...INITIAL_SYSTEM_FRAGMENTS];
+      const frag001 = fragments.find(f => f.number === 1);
+      if (frag001) {
+        frag001.discoveryDate = today;
+      }
+
+      const nextChar = {
+        ...prev.character,
+        unlockedFrames: updatedFrames,
+        equippedFrame: 'frame_founder',
+        titles: currentTitles,
+        activeTitle: 'System Founder'
+      };
+
+      playSound('achievement', prev.settings.soundEnabled);
+
+      return {
+        ...prev,
+        character: nextChar,
+        systemFragments: fragments,
+        founderClaimed: true
+      };
+    });
+  };
+
+  const handleActivateOriginProtocol = () => {
+    setState(prev => {
+      if (!prev.character) return prev;
+      const currentTitles = [...prev.character.titles];
+      if (!currentTitles.includes('Origin Sovereign')) {
+        currentTitles.push('Origin Sovereign');
+      }
+      const currentFrames = prev.character.unlockedFrames || ['frame_default'];
+      const updatedFrames = currentFrames.includes('frame_monarch_shadow') ? currentFrames : [...currentFrames, 'frame_monarch_shadow'];
+      playSound('levelUp', prev.settings.soundEnabled);
+      return {
+        ...prev,
+        character: {
+          ...prev.character,
+          titles: currentTitles,
+          activeTitle: 'Origin Sovereign',
+          unlockedFrames: updatedFrames,
+          equippedFrame: 'frame_monarch_shadow'
+        }
+      };
+    });
+  };
+
+  // Reactive System Fragments Evaluation Engine
+  useEffect(() => {
+    if (state.character) {
+      const evalRes = evaluateSystemFragments(state);
+      if (evalRes.newlyDiscovered.length > 0) {
+        setState(prev => ({
+          ...prev,
+          systemFragments: evalRes.updatedFragments
+        }));
+      }
+    }
+  }, [
+    state.character?.level,
+    state.streak?.currentStreak,
+    state.fitnessLogs?.length,
+    state.learningLogs?.length,
+    state.businessLogs?.length,
+    state.faithLogs?.length,
+    state.quests?.filter(q => q.completed).length,
+    state.bossBattle?.completed
+  ]);
+
   const handleCompleteFocusSession = (minutes: number, xpEarned: number, coinsEarned: number) => {
     setState(prev => {
       if (!prev.character) return prev;
@@ -405,7 +751,12 @@ export default function App() {
   };
 
   const handleResetProgress = () => {
-    setState(getInitialState());
+    sessionStorage.removeItem('arise_session_greeted');
+    setIsUnlocking(false);
+    setShowWelcome(false);
+    const initial = getInitialState();
+    initial.settings.themeMode = state.settings.themeMode;
+    setState(initial);
     setActiveTab('dashboard');
   };
 
@@ -444,81 +795,91 @@ export default function App() {
     });
   };
 
-  // 1. Render Onboarding Screen if no profile awakened
+  // 1. Render First-Time Onboarding Screen if no profile initialized
   if (!state.character) {
     return (
-      <CharacterCreator
-        onAwaken={handleAwaken}
-        soundEnabled={state.settings.soundEnabled}
-      />
+      <ThemeProvider
+        initialTheme={state.settings.themeMode}
+        onThemeChange={(newTheme) => handleUpdateSettings({ themeMode: newTheme })}
+      >
+        <SystemInitialization
+          onInitialize={handleSystemInitialize}
+          soundEnabled={state.settings.soundEnabled}
+        />
+      </ThemeProvider>
     );
   }
 
   // 2. Render Security PIN Entry if locked
   if (state.settings.pinLock && !isAuthenticated) {
     return (
-      <div className="min-h-screen bg-[#090D18] text-zinc-100 flex flex-col justify-center items-center px-4 font-sans relative select-none">
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(0,242,254,0.04),transparent_50%)] pointer-events-none" />
+      <ThemeProvider
+        initialTheme={state.settings.themeMode}
+        onThemeChange={(newTheme) => handleUpdateSettings({ themeMode: newTheme })}
+      >
+        <div className="min-h-screen bg-[#090D18] text-zinc-100 flex flex-col justify-center items-center px-4 font-sans relative select-none">
+          <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(0,242,254,0.04),transparent_50%)] pointer-events-none" />
 
-        <div className="relative max-w-sm w-full bg-[#111B2D] border border-cyan-500/15 rounded-[14px] p-8 text-center space-y-6 shadow-[0_0_30px_rgba(0,242,254,0.02)] backdrop-blur-sm">
-          <div className="flex flex-col items-center gap-2">
-            <div className="w-12 h-12 rounded-xl bg-[#101726] border border-cyan-500/10 flex items-center justify-center mb-1">
-              <Lock className="w-5 h-5 text-cyan-400" />
+          <div className="relative max-w-sm w-full bg-[#111B2D] border border-cyan-500/15 rounded-[14px] p-8 text-center space-y-6 shadow-[0_0_30px_rgba(0,242,254,0.02)] backdrop-blur-sm">
+            <div className="flex flex-col items-center gap-2">
+              <div className="w-12 h-12 rounded-xl bg-[#101726] border border-cyan-500/10 flex items-center justify-center mb-1">
+                <Lock className="w-5 h-5 text-cyan-400" />
+              </div>
+              <h2 className="text-[10px] font-mono tracking-[0.15em] uppercase text-zinc-500">SYSTEM LOCK</h2>
+              <h1 className="text-base font-semibold text-zinc-200 tracking-tight">SECURITY VERIFICATION</h1>
             </div>
-            <h2 className="text-[10px] font-mono tracking-[0.15em] uppercase text-zinc-500">SYSTEM LOCK</h2>
-            <h1 className="text-base font-semibold text-zinc-200 tracking-tight">SECURITY VERIFICATION</h1>
-          </div>
 
-          {/* Code slots */}
-          <div className="flex justify-center gap-3 py-2">
-            {[0, 1, 2, 3].map((idx) => {
-              const hasDigit = pinEntry.length > idx;
-              return (
-                <div
-                  key={idx}
-                  className={`w-11 h-11 rounded-lg border flex items-center justify-center font-mono text-sm transition-all ${
-                    hasDigit
-                      ? 'border-cyan-500 bg-cyan-950/20 text-cyan-400 scale-105 shadow-[0_0_10px_rgba(0,242,254,0.1)]'
-                      : 'border-zinc-800 bg-[#101726] text-zinc-700'
-                  }`}
+            {/* Code slots */}
+            <div className="flex justify-center gap-3 py-2">
+              {[0, 1, 2, 3].map((idx) => {
+                const hasDigit = pinEntry.length > idx;
+                return (
+                  <div
+                    key={idx}
+                    className={`w-11 h-11 rounded-lg border flex items-center justify-center font-mono text-sm transition-all ${
+                      hasDigit
+                        ? 'border-cyan-500 bg-cyan-950/20 text-cyan-400 scale-105 shadow-[0_0_10px_rgba(0,242,254,0.1)]'
+                        : 'border-zinc-800 bg-[#101726] text-zinc-700'
+                    }`}
+                  >
+                    {hasDigit ? '●' : ''}
+                  </div>
+                );
+              })}
+            </div>
+
+            {pinError && <p className="text-red-400 text-xs font-mono tracking-wider animate-shake">{pinError}</p>}
+
+            {/* Keypad */}
+            <div className="grid grid-cols-3 gap-2.5 max-w-xs mx-auto pt-2">
+              {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((digit) => (
+                <button
+                  key={digit}
+                  onClick={() => handlePinDigit(digit)}
+                  className="py-3 bg-[#101726]/80 hover:bg-[#101726] border border-cyan-500/5 hover:border-cyan-500/25 text-sm font-medium rounded-xl cursor-pointer text-zinc-300 transition-all active:scale-95 hover:shadow-[0_0_10px_rgba(0,242,254,0.05)]"
                 >
-                  {hasDigit ? '●' : ''}
-                </div>
-              );
-            })}
-          </div>
-
-          {pinError && <p className="text-red-400 text-xs font-mono tracking-wider animate-shake">{pinError}</p>}
-
-          {/* Keypad */}
-          <div className="grid grid-cols-3 gap-2.5 max-w-xs mx-auto pt-2">
-            {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((digit) => (
+                  {digit}
+                </button>
+              ))}
               <button
-                key={digit}
-                onClick={() => handlePinDigit(digit)}
-                className="py-3 bg-[#101726]/80 hover:bg-[#101726] border border-cyan-500/5 hover:border-cyan-500/25 text-sm font-medium rounded-xl cursor-pointer text-zinc-300 transition-all active:scale-95 hover:shadow-[0_0_10px_rgba(0,242,254,0.05)]"
+                onClick={handlePinClear}
+                className="py-3 bg-red-950/10 hover:bg-red-950/20 border border-red-500/20 text-red-400 text-[10px] font-mono rounded-xl cursor-pointer"
               >
-                {digit}
+                CLEAR
               </button>
-            ))}
-            <button
-              onClick={handlePinClear}
-              className="py-3 bg-red-950/10 hover:bg-red-950/20 border border-red-500/20 text-red-400 text-[10px] font-mono rounded-xl cursor-pointer"
-            >
-              CLEAR
-            </button>
-            <button
-              onClick={() => handlePinDigit('0')}
-              className="py-3 bg-[#101726]/80 hover:bg-[#101726] border border-cyan-500/5 hover:border-cyan-500/25 text-sm font-medium rounded-xl cursor-pointer text-zinc-300"
-            >
-              0
-            </button>
-            <div className="flex items-center justify-center text-zinc-600 text-[9px] font-mono tracking-wider uppercase">
-              SECURE LN
+              <button
+                onClick={() => handlePinDigit('0')}
+                className="py-3 bg-[#101726]/80 hover:bg-[#101726] border border-cyan-500/5 hover:border-cyan-500/25 text-sm font-medium rounded-xl cursor-pointer text-zinc-300"
+              >
+                0
+              </button>
+              <div className="flex items-center justify-center text-zinc-600 text-[9px] font-mono tracking-wider uppercase">
+                SECURE LN
+              </div>
             </div>
           </div>
         </div>
-      </div>
+      </ThemeProvider>
     );
   }
 
@@ -528,17 +889,25 @@ export default function App() {
     { id: 'quests', label: 'Daily Quests', icon: Compass },
     { id: 'stats', label: 'Attributes & Stats', icon: Activity },
     { id: 'inventory', label: 'Vault & Armory', icon: Box },
+    { id: 'legacy-tree', label: 'Legacy Tree', icon: TreePine },
+    { id: 'life-calendar', label: 'Life Calendar', icon: Calendar },
     { id: 'trackers', label: 'Activity Logs', icon: Brain },
     { id: 'focus', label: 'Focus Timer', icon: Clock },
     { id: 'achievements', label: 'Achievements', icon: Trophy },
-    { id: 'life-calendar', label: 'Life Calendar', icon: Calendar },
     { id: 'calendar', label: 'Consistency Map', icon: CalendarDays },
     { id: 'analytics', label: 'Performance Insights', icon: BarChart2 },
     { id: 'settings', label: 'Settings', icon: SettingsIcon }
   ];
 
   return (
-    <div className={`min-h-screen bg-[#090D18] text-zinc-100 font-sans relative flex flex-col md:flex-row select-none theme-${state.settings.themeMode}`}>
+    <ThemeProvider
+      initialTheme={state.settings.themeMode}
+      onThemeChange={(newTheme) => handleUpdateSettings({ themeMode: newTheme })}
+    >
+      <div className={`min-h-screen bg-[#090D18] text-zinc-100 font-sans relative flex flex-col md:flex-row select-none theme-${state.settings.themeMode}`}>
+        {/* Offline Status Alert */}
+        <OfflineIndicator />
+
       {/* Premium subtle background lighting */}
       <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-cyan-500/[0.015] rounded-full blur-[120px] pointer-events-none" />
       <div className="absolute bottom-0 left-0 w-[500px] h-[500px] bg-blue-500/[0.01] rounded-full blur-[120px] pointer-events-none" />
@@ -558,16 +927,34 @@ export default function App() {
         </div>
 
         {/* Profile Card & Stats HUD */}
-        <div className="mb-6 p-4 bg-[#111B2D]/60 border border-cyan-500/10 rounded-[14px] space-y-2.5 shadow-[0_0_15px_rgba(0,242,254,0.02)]">
-          <div className="flex justify-between items-center text-[9px] font-mono text-zinc-500">
-            <span>OPERATOR RATING</span>
-            <span className="text-cyan-400 font-medium tracking-wide uppercase">{state.character.rank.split(' ')[0]}</span>
+        <div
+          onClick={() => setIsEditIdentityOpen(true)}
+          title="Click to edit System Identity"
+          className="mb-6 p-3.5 bg-[#111B2D]/60 hover:bg-[#111B2D]/90 border border-cyan-500/10 hover:border-cyan-500/30 rounded-[14px] space-y-2.5 shadow-[0_0_15px_rgba(0,242,254,0.02)] cursor-pointer group transition-all"
+        >
+          <div className="flex items-center gap-3">
+            <ProfileAvatar
+              avatar={state.character.avatar}
+              equippedFrame={state.character.equippedFrame}
+              level={state.character.level}
+              size="sm"
+              showLevelBadge={false}
+              isClickable={true}
+            />
+            <div className="min-w-0 flex-1">
+              <div className="flex justify-between items-center text-[9px] font-mono text-zinc-500">
+                <span>OPERATOR</span>
+                <span className="text-cyan-400 font-medium tracking-wide uppercase">{state.character.rank.split(' ')[0]}</span>
+              </div>
+              <h4 className="text-xs font-bold text-zinc-200 truncate tracking-tight group-hover:text-cyan-300 transition-colors">
+                {state.character.name}
+              </h4>
+            </div>
           </div>
-          <h4 className="text-xs font-bold text-zinc-200 truncate tracking-tight">{state.character.name}</h4>
-          <div className="flex items-center gap-2 text-[9px] text-zinc-400 font-mono border-t border-cyan-500/5 pt-2">
+          <div className="flex items-center justify-between text-[9px] text-zinc-400 font-mono border-t border-cyan-500/5 pt-2">
             <span>LVL {state.character.level}</span>
             <span className="text-zinc-600">•</span>
-            <span>{state.character.coins} Coins</span>
+            <span className="text-amber-400 font-bold">{state.character.coins.toLocaleString()} Coins</span>
           </div>
         </div>
 
@@ -595,18 +982,37 @@ export default function App() {
             );
           })}
         </nav>
+
+        {/* Android PWA Install Option */}
+        <div className="pt-4 border-t border-cyan-500/10 mt-2">
+          <PWAInstallButton variant="sidebar" soundEnabled={state.settings.soundEnabled} />
+        </div>
       </aside>
 
       {/* 2. Mobile Floating header Bar */}
       <header className="md:hidden flex justify-between items-center px-4 py-3 bg-[#101726] border-b border-cyan-500/10 z-20 shrink-0">
-        <div className="flex items-center gap-2">
-          <Sparkles className="w-4 h-4 text-cyan-400" />
-          <span className="text-xs font-bold tracking-[0.1em] uppercase font-mono text-zinc-200">LifeOS</span>
+        <div className="flex items-center gap-2.5">
+          <ProfileAvatar
+            avatar={state.character.avatar}
+            equippedFrame={state.character.equippedFrame}
+            level={state.character.level}
+            size="xs"
+            showLevelBadge={false}
+            isClickable={true}
+            onClick={() => setIsEditIdentityOpen(true)}
+          />
+          <div className="flex items-center gap-1.5">
+            <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
+            <span className="text-xs font-bold tracking-[0.1em] uppercase font-mono text-zinc-200">LifeOS</span>
+          </div>
         </div>
-        <div className="flex items-center gap-2 text-[10px] font-mono">
-          <span className="text-zinc-300 font-medium">{state.character.coins} Coins</span>
-          <span className="text-zinc-600">|</span>
-          <span className="text-cyan-400 font-medium">LVL {state.character.level}</span>
+        <div className="flex items-center gap-2.5">
+          <PWAInstallButton variant="compact" soundEnabled={state.settings.soundEnabled} />
+          <div className="flex items-center gap-1.5 text-[10px] font-mono">
+            <span className="text-zinc-300 font-medium">{state.character.coins} Coins</span>
+            <span className="text-zinc-600">|</span>
+            <span className="text-cyan-400 font-medium">LVL {state.character.level}</span>
+          </div>
         </div>
       </header>
 
@@ -629,6 +1035,7 @@ export default function App() {
             onLogFaith={handleLogFaith}
             onLogFitness={handleLogFitness}
             learningLogs={state.learningLogs}
+            onEditIdentity={() => setIsEditIdentityOpen(true)}
           />
         )}
 
@@ -661,6 +1068,27 @@ export default function App() {
             onOpenChest={handleOpenChest}
             onEquipTitle={handleEquipTitle}
             soundEnabled={state.settings.soundEnabled}
+            systemFragments={state.systemFragments}
+            unlockedThemes={state.character.unlockedThemes || ['dark-cyber', 'neon-blue', 'monarch-purple']}
+            unlockedFrames={state.character.unlockedFrames || ['frame_default']}
+            founderClaimed={state.founderClaimed || false}
+            legacyRelics={state.legacyTree?.relics}
+            onUnlockTheme={handleUnlockTheme}
+            onEquipFrame={handleEquipFrame}
+            onUnlockFrameWithCoins={handleUnlockFrameWithCoins}
+            onClaimFounder={handleClaimFounder}
+            streakDays={state.streak.currentStreak}
+            hasDefeatedBoss={Boolean(state.bossBattle?.completed || state.missions?.some(m => m.bossBattle?.completed))}
+            onActivateOriginProtocol={handleActivateOriginProtocol}
+          />
+        )}
+
+        {activeTab === 'legacy-tree' && (
+          <LegacyTreeView
+            state={state}
+            onUpdateState={setState}
+            soundEnabled={state.settings.soundEnabled}
+            onNavigateTab={(tab) => setActiveTab(tab)}
           />
         )}
 
@@ -725,6 +1153,7 @@ export default function App() {
             fullState={state}
             soundEnabled={state.settings.soundEnabled}
             onUpdateLifeCalendarSettings={handleUpdateLifeCalendarSettings}
+            onUpdateAvatar={handleUpdateAvatar}
           />
         )}
       </main>
@@ -817,6 +1246,43 @@ export default function App() {
           </div>
         </div>
       )}
-    </div>
+
+      {/* Floating Android PWA Install Banner */}
+      <PWAInstallBanner soundEnabled={state.settings.soundEnabled} />
+
+      {/* ARISE Signature System Unlock Transition (0.8s total duration) */}
+      {isUnlocking && (
+        <SystemUnlockTransition
+          startPhase={2}
+          soundEnabled={state.settings.soundEnabled}
+          onComplete={() => {
+            setIsUnlocking(false);
+            setShowWelcome(true);
+          }}
+        />
+      )}
+
+      {/* Floating Welcome Overlay (auto-dismiss ~1.5s, non-blocking) */}
+      {showWelcome && state.character && (
+        <WelcomeOverlay
+          userName={state.character.name}
+          missionDay={calculateMissionDay(state.character.createdAt)}
+          isFirstDayOrUnlock={isFirstDayOrUnlock}
+          onDismiss={() => setShowWelcome(false)}
+        />
+      )}
+
+      {/* Edit System Identity Modal */}
+      {state.character && (
+        <EditSystemIdentityModal
+          isOpen={isEditIdentityOpen}
+          onClose={() => setIsEditIdentityOpen(false)}
+          character={state.character}
+          onSaveAvatar={handleUpdateAvatar}
+          soundEnabled={state.settings.soundEnabled}
+        />
+      )}
+      </div>
+    </ThemeProvider>
   );
 }

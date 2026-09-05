@@ -1140,6 +1140,104 @@ export default function MissionDashboardModal({
                   </div>
                 </div>
               )}
+
+              {/* === PERSONALIZED DYNAMIC PROTOCOL (For custom / generated missions) === */}
+              {!['hsc', 'creator', 'faith', 'fitness'].includes(mission.id) && (
+                <div className="space-y-6">
+                  {/* Tactical Directive Overview */}
+                  <div className="bg-[#111B2D] border border-cyan-500/20 rounded-2xl p-6 space-y-4">
+                    <div className="flex justify-between items-start">
+                      <div className="flex items-center gap-3">
+                        <div className="w-12 h-12 rounded-xl bg-cyan-950/60 border border-cyan-500/30 flex items-center justify-center text-2xl">
+                          {mission.icon}
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] font-mono text-cyan-400 uppercase font-bold tracking-widest bg-cyan-950/80 border border-cyan-500/25 px-2 py-0.5 rounded">
+                              {mission.goalCategory || 'TACTICAL PROTOCOL'}
+                            </span>
+                            {mission.priority && (
+                              <span className="text-[10px] font-mono text-amber-400 bg-amber-950/40 border border-amber-500/25 px-2 py-0.5 rounded font-bold">
+                                PRIORITY #{mission.priority}
+                              </span>
+                            )}
+                          </div>
+                          <h2 className="text-base font-bold text-zinc-100 mt-1 font-mono">
+                            {mission.name}
+                          </h2>
+                        </div>
+                      </div>
+                      <span className="text-[10px] font-mono px-2 py-1 bg-cyan-950/80 border border-cyan-500/30 text-cyan-300 rounded font-bold">
+                        LEVEL {mission.level} • {mission.rank}
+                      </span>
+                    </div>
+
+                    <p className="text-xs text-zinc-300 font-sans leading-relaxed">
+                      {mission.description}
+                    </p>
+
+                    {mission.originalGoal && (
+                      <div className="p-3 bg-[#101726] border border-cyan-500/15 rounded-xl text-xs font-mono text-zinc-400 flex items-center gap-2">
+                        <span className="text-cyan-400 font-bold">PRIMARY DIRECTIVE:</span>
+                        <span className="text-zinc-200">"{mission.originalGoal}"</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Quick Session Logger */}
+                  <div className="bg-[#111B2D] border border-cyan-500/20 rounded-2xl p-6 space-y-4">
+                    <span className="text-[10px] font-mono uppercase tracking-widest text-zinc-400 font-bold block">
+                      LOG PROTOCOL EXECUTION BLOCK
+                    </span>
+                    <p className="text-xs text-zinc-400 font-sans">
+                      Complete dedicated work towards this objective to advance mission level and earn tactical telemetry XP.
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {[30, 45, 60, 90].map((mins) => (
+                        <button
+                          key={mins}
+                          type="button"
+                          onClick={() => {
+                            playSound('click', soundEnabled);
+                            const updated = { ...mission };
+                            const hours = mins / 60;
+                            updated.stats = updated.stats || {};
+                            updated.stats.completedSessions = (updated.stats.completedSessions || 0) + 1;
+                            updated.stats.hoursInvested = Number(((updated.stats.hoursInvested || 0) + hours).toFixed(2));
+                            updated.xp = updated.xp + (mins >= 60 ? 30 : 15);
+                            if (updated.xp >= updated.xpNeeded) {
+                              updated.level += 1;
+                              updated.xp = updated.xp - updated.xpNeeded;
+                              updated.xpNeeded = Math.round(updated.xpNeeded * 1.25);
+                            }
+                            onUpdateMission(updated);
+                          }}
+                          className="px-4 py-2.5 rounded-xl bg-[#101726] hover:bg-cyan-950/50 border border-cyan-500/20 hover:border-cyan-400 text-xs font-mono font-bold text-cyan-300 transition-all cursor-pointer flex items-center gap-1.5"
+                        >
+                          <span>+{mins} MIN SPRINT</span>
+                          <span className="text-[10px] text-zinc-500">({mins >= 60 ? '+30' : '+15'} XP)</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Telemetry Stats Grid */}
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 font-mono">
+                    <div className="p-4 bg-[#111B2D] border border-cyan-500/15 rounded-xl text-center space-y-1">
+                      <span className="text-[10px] text-zinc-500 uppercase tracking-widest block">SESSIONS</span>
+                      <span className="text-lg font-bold text-cyan-400">{mission.stats?.completedSessions || 0}</span>
+                    </div>
+                    <div className="p-4 bg-[#111B2D] border border-cyan-500/15 rounded-xl text-center space-y-1">
+                      <span className="text-[10px] text-zinc-500 uppercase tracking-widest block">HOURS INVESTED</span>
+                      <span className="text-lg font-bold text-cyan-400">{(mission.stats?.hoursInvested || 0).toFixed(1)}h</span>
+                    </div>
+                    <div className="p-4 bg-[#111B2D] border border-cyan-500/15 rounded-xl text-center space-y-1 col-span-2 sm:col-span-1">
+                      <span className="text-[10px] text-zinc-500 uppercase tracking-widest block">PROGRESS</span>
+                      <span className="text-lg font-bold text-emerald-400">{Math.round((mission.xp / mission.xpNeeded) * 100)}%</span>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 

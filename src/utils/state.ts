@@ -1,5 +1,7 @@
-import { AppState, Character, Quest, BossBattle, Achievement, InventoryItem, FitnessLog, LearningLog, BusinessLog, FaithLog, StreakState, QuestPlanner, Mission, MissionObjective, MissionBoss, DailyLifeArchive } from '../types';
+import { AppState, Character, Quest, BossBattle, Achievement, InventoryItem, FitnessLog, LearningLog, BusinessLog, FaithLog, StreakState, QuestPlanner, Mission, MissionObjective, MissionBoss, DailyLifeArchive, SystemFragment } from '../types';
 import { playSound } from './sound';
+import { generateGoalQuests } from './aiMissions';
+import { INITIAL_SYSTEM_FRAGMENTS, evaluateSystemFragments } from '../data/systemFragmentsData';
 
 // Helper to format date as YYYY-MM-DD
 export function getTodayDateString(): string {
@@ -51,6 +53,7 @@ export const defaultAchievements: Achievement[] = [
 export const defaultInventory: InventoryItem[] = [
   { id: 'potion_hp', name: 'Elixir of Life', type: 'potion', description: 'Restores 50 HP. Essential for recovering from fatigue.', quantity: 3, rarity: 'common', icon: 'HeartPulse', effectValue: 50 },
   { id: 'energy_drink', name: 'Elixir of Mana', type: 'energy', description: 'Restores 30 Energy. Replenish your focus capacity.', quantity: 3, rarity: 'common', icon: 'Sparkles', effectValue: 30 },
+  { id: 'crate_common', name: 'Operative Supply Crate', type: 'crate_common', description: 'Standard tactical drop containing essential coins, recovery supplies, and operative gear.', quantity: 1, rarity: 'common', icon: 'Box' },
   { id: 'chest_rare', name: 'Rare Dungeon Chest', type: 'chest_rare', description: 'Open to obtain Coins, random potions, or Rare titles.', quantity: 1, rarity: 'rare', icon: 'Box' },
   { id: 'chest_epic', name: 'Epic S-Rank Chest', type: 'chest_epic', description: 'Contains substantial gold coins, epic potions, and special epic avatars.', quantity: 0, rarity: 'epic', icon: 'Gem' },
   { id: 'chest_legendary', name: 'Monarch’s Relic Chest', type: 'chest_legendary', description: 'Contains the ultimate loot. Unlocks Shadow Monarch cosmetics and legendary titles.', quantity: 0, rarity: 'legendary', icon: 'Crown' }
@@ -513,13 +516,26 @@ export function generateDailyQuests(stateOrDate: AppState | string | null, dateS
     coinReward: 20
   });
 
+  // Inject prioritized goal-based quests if character has goals
+  if (state?.character?.goals && state.character.goals.length > 0) {
+    const goalQuests = generateGoalQuests(state.character.goals, dateStr);
+    generated.unshift(...goalQuests);
+  }
+
   // Sort generated quests based on strict Priority system:
+  // 0. User's personalized #1 Priority Goal
   // 1. Obligatory Islamic acts (Faith)
-  // 2. HSC preparation (Intelligence / Knowledge)
-  // 3. Content creation (Business)
-  // 4. Health & Gym (Strength / Agility / Vitality)
-  // 5. Personal development (Discipline)
+  // 2. User's other prioritized Goals
+  // 3. HSC preparation (Intelligence / Knowledge)
+  // 4. Content creation (Business)
+  // 5. Health & Gym (Strength / Agility / Vitality)
+  // 6. Personal development (Discipline)
   const getPriorityWeight = (q: Quest) => {
+    if (q.id.includes('goal_')) {
+      const match = q.id.match(/_(\d+)$/);
+      const priorityIndex = match ? parseInt(match[1], 10) : 0;
+      return 0.2 + priorityIndex * 0.5; // Top priority goals get lowest numeric weights
+    }
     if (q.id.includes('salah')) return 1;
     if (q.id.includes('quran')) return 2;
     if (q.category === 'Faith' && q.id.includes('friday')) return 3;
@@ -538,8 +554,21 @@ export function generateDailyQuests(stateOrDate: AppState | string | null, dateS
   generated.sort((a, b) => getPriorityWeight(a) - getPriorityWeight(b));
 
   return generated.map(q => {
-    let missionId: 'hsc' | 'creator' | 'faith' | 'fitness' = 'fitness';
-    if (q.id.includes('salah') || q.id.includes('quran') || q.id.includes('adhkar') || q.id.includes('friday') || q.id.includes('worship') || q.category === 'Faith') {
+    let missionId: 'hsc' | 'creator' | 'faith' | 'fitness' | string = 'fitness';
+    if (q.id.includes('goal_')) {
+      const match = q.id.match(/_(\d+)$/);
+      const priorityIndex = match ? parseInt(match[1], 10) : 0;
+      const targetGoal = state?.character?.goals?.[priorityIndex];
+      if (targetGoal) {
+        const foundMission = state?.missions?.find(m => m.originalGoal === targetGoal.text || m.name === targetGoal.missionName);
+        if (foundMission) {
+          missionId = foundMission.id;
+        } else if (targetGoal.category === 'Fitness') missionId = 'fitness';
+        else if (targetGoal.category === 'Faith') missionId = 'faith';
+        else if (targetGoal.category === 'Finance' || targetGoal.category === 'Business') missionId = 'creator';
+        else if (targetGoal.category === 'Education' || targetGoal.category === 'Skills') missionId = 'hsc';
+      }
+    } else if (q.id.includes('salah') || q.id.includes('quran') || q.id.includes('adhkar') || q.id.includes('friday') || q.id.includes('worship') || q.category === 'Faith') {
       missionId = 'faith';
     } else if (q.id.includes('hsc') || q.category === 'Intelligence' || q.category === 'Knowledge') {
       missionId = 'hsc';
@@ -623,7 +652,9 @@ export function getInitialState(): AppState {
       customMilestones: []
     },
     lifeReflections: {},
-    lifeHistoryArchive: {}
+    lifeHistoryArchive: {},
+    systemFragments: INITIAL_SYSTEM_FRAGMENTS,
+    founderClaimed: false
   };
 }
 
@@ -881,7 +912,7 @@ export function toggleQuestCompletion(
 export function openChest(
   state: AppState,
   chestId: string
-): { success: boolean; loot: { coins: number; xp: number; rewardItem?: string; rarity: string } | null; newState: AppState } {
+): { success: boolean; loot: { coins: number; xp: number; rewardItem?: string; rarity: string; frameId?: string } | null; newState: AppState } {
   if (!state.character) return { success: false, loot: null, newState: state };
 
   const itemIndex = state.inventory.findIndex(item => item.id === chestId && item.quantity > 0);
@@ -898,13 +929,22 @@ export function openChest(
   let xpEarned = 0;
   let rewardItem = '';
   let rarity = 'common';
+  let droppedFrameId: string | undefined;
 
-  if (itemType === 'chest_rare') {
+  if (itemType === 'crate_common' || itemType === ('crate_common' as any)) {
+    coinsEarned = Math.floor(Math.random() * 80) + 40;
+    xpEarned = Math.floor(Math.random() * 40) + 20;
+    rarity = 'common';
+    rewardItem = 'Tactical Field Rations';
+  } else if (itemType === 'chest_rare') {
     coinsEarned = Math.floor(Math.random() * 200) + 100;
     xpEarned = Math.floor(Math.random() * 100) + 50;
     rarity = 'rare';
-    // 50% chance to drop another potion
-    if (Math.random() < 0.5) {
+    // 35% chance to drop Neon Blue frame, otherwise potion
+    if (Math.random() < 0.35 && !state.character.unlockedFrames?.includes('frame_cyber_blue')) {
+      rewardItem = 'Neon Blue Sentry (Profile Frame)';
+      droppedFrameId = 'frame_cyber_blue';
+    } else if (Math.random() < 0.5) {
       rewardItem = 'Elixir of Life (Potion)';
       const potIdx = updatedInventory.findIndex(i => i.id === 'potion_hp');
       if (potIdx !== -1) updatedInventory[potIdx].quantity += 1;
@@ -913,46 +953,82 @@ export function openChest(
     coinsEarned = Math.floor(Math.random() * 500) + 300;
     xpEarned = Math.floor(Math.random() * 250) + 100;
     rarity = 'epic';
-    // Unlocks a random Title or high-tier cosmetic
-    const epicTitles = ['Knight Sentry', 'Dungeon Raider', 'White Flame Lord'];
-    rewardItem = epicTitles[Math.floor(Math.random() * epicTitles.length)] + ' (Title)';
+    // 30% chance to drop Crimson Knight frame
+    if (Math.random() < 0.3 && !state.character.unlockedFrames?.includes('frame_crimson_knight')) {
+      rewardItem = 'Crimson Knight (Profile Frame)';
+      droppedFrameId = 'frame_crimson_knight';
+    } else {
+      // Unlocks a random Title or high-tier cosmetic
+      const epicTitles = ['Knight Sentry', 'Dungeon Raider', 'White Flame Lord'];
+      rewardItem = epicTitles[Math.floor(Math.random() * epicTitles.length)] + ' (Title)';
+    }
   } else if (itemType === 'chest_legendary') {
     coinsEarned = Math.floor(Math.random() * 1500) + 800;
     xpEarned = Math.floor(Math.random() * 600) + 300;
     rarity = 'legendary';
-    rewardItem = 'Shadow Monarch Legacy (Avatar & Title)';
+    rewardItem = 'Monarch Void Aura (Frame & Title)';
+    droppedFrameId = 'frame_legendary';
   }
 
-  let nextState = {
+  let nextState: AppState = {
     ...state,
     inventory: updatedInventory
   };
 
-  // Add coins
+  // Add coins & frames
   if (nextState.character) {
-    nextState.character.coins += coinsEarned;
-    // Add unlocked title if legendary
+    const updatedChar = { ...nextState.character };
+    updatedChar.coins += coinsEarned;
+
+    // Unlocked frames list
+    const frames = [...(updatedChar.unlockedFrames || ['frame_default'])];
+    if (droppedFrameId && !frames.includes(droppedFrameId)) {
+      frames.push(droppedFrameId);
+    }
+    updatedChar.unlockedFrames = frames;
+
+    // Add unlocked titles
     if (itemType === 'chest_legendary') {
-      if (!nextState.character.titles.includes('Shadow Monarch Legacy')) {
-        nextState.character.titles.push('Shadow Monarch Legacy');
+      if (!updatedChar.titles.includes('Shadow Monarch Legacy')) {
+        updatedChar.titles.push('Shadow Monarch Legacy');
       }
-    } else if (itemType === 'chest_epic') {
+    } else if (itemType === 'chest_epic' && rewardItem.includes('(Title)')) {
       const cleanTitle = rewardItem.replace(' (Title)', '');
-      if (!nextState.character.titles.includes(cleanTitle)) {
-        nextState.character.titles.push(cleanTitle);
+      if (!updatedChar.titles.includes(cleanTitle)) {
+        updatedChar.titles.push(cleanTitle);
       }
     }
+
+    nextState.character = updatedChar;
   }
 
   // Add XP
   const xpRes = addXp(nextState, xpEarned, 'General');
   nextState = xpRes.newState;
 
+  // Evaluate fragment discovery (e.g. #24 Crate Infiltrator, #57 Monarch's Relic Crate)
+  const todayStr = getTodayDateString();
+  const fragments = nextState.systemFragments ? [...nextState.systemFragments] : [...INITIAL_SYSTEM_FRAGMENTS];
+  
+  // Fragment 24: Crate Infiltrator
+  const frag24 = fragments.find(f => f.number === 24);
+  if (frag24 && frag24.discoveryDate === null) {
+    frag24.discoveryDate = todayStr;
+  }
+  // Fragment 57: Monarch's Relic Crate (epic/legendary)
+  if (itemType === 'chest_epic' || itemType === 'chest_legendary') {
+    const frag57 = fragments.find(f => f.number === 57);
+    if (frag57 && frag57.discoveryDate === null) {
+      frag57.discoveryDate = todayStr;
+    }
+  }
+  nextState.systemFragments = fragments;
+
   playSound('achievement', state.settings.soundEnabled);
 
   return {
     success: true,
-    loot: { coins: coinsEarned, xp: xpEarned, rewardItem: rewardItem || undefined, rarity },
+    loot: { coins: coinsEarned, xp: xpEarned, rewardItem: rewardItem || undefined, rarity, frameId: droppedFrameId },
     newState: nextState
   };
 }
@@ -1701,7 +1777,7 @@ export function ensureMissionsExist(state: AppState): AppState {
 }
 
 // Map mission ID to corresponding prestigious ranks
-export function getMissionRank(missionId: 'hsc' | 'creator' | 'faith' | 'fitness', level: number): string {
+export function getMissionRank(missionId: 'hsc' | 'creator' | 'faith' | 'fitness' | string, level: number): string {
   if (missionId === 'hsc') {
     if (level < 10) return 'Novice Scholar';
     if (level < 25) return 'Academic Slayer';
@@ -1720,18 +1796,24 @@ export function getMissionRank(missionId: 'hsc' | 'creator' | 'faith' | 'fitness
     if (level < 50) return 'Consistent Pray-er';
     if (level < 75) return 'Guardian of Sincerity';
     return 'Al-Mumin';
-  } else {
-    // fitness
+  } else if (missionId === 'fitness') {
     if (level < 10) return 'Iron Apprentice';
     if (level < 25) return 'Gym Regular';
     if (level < 50) return 'Fitness Beast';
     if (level < 75) return 'Titan Lifter';
     return 'Aesthetic God';
+  } else {
+    // Custom/dynamic mission ranks
+    if (level < 10) return 'Protocol Novice';
+    if (level < 25) return 'Protocol Operative';
+    if (level < 50) return 'Tactical Elite';
+    if (level < 75) return 'Master Practitioner';
+    return 'Protocol Paragon';
   }
 }
 
 // Maps category to corresponding mission ID
-export function getMissionIdFromCategory(category?: string): 'hsc' | 'creator' | 'faith' | 'fitness' {
+export function getMissionIdFromCategory(category?: string): 'hsc' | 'creator' | 'faith' | 'fitness' | string {
   if (!category) return 'fitness';
   if (category === 'Faith') return 'faith';
   if (category === 'Intelligence' || category === 'Knowledge') return 'hsc';
@@ -1742,7 +1824,7 @@ export function getMissionIdFromCategory(category?: string): 'hsc' | 'creator' |
 // Add XP to both a mission and the character
 export function addMissionAndCharXp(
   state: AppState,
-  missionId: 'hsc' | 'creator' | 'faith' | 'fitness',
+  missionId: 'hsc' | 'creator' | 'faith' | 'fitness' | string,
   amount: number,
   category: keyof Character['stats'] | 'General' = 'General'
 ): AppState {
